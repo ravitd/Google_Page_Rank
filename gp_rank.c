@@ -1,24 +1,44 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-
-typedef struct {
-	float curr_page_rank;
-	float next_page_rank;
-	long num_adj_nodes;
-	void *next;
-}vertex_t;
+#include <errno.h>
+#include <limits.h>
+#include <string.h>
 
 typedef struct ad_vert {
 	long vertex_num;
 	struct ad_vert *next;
 }adj_vert_t;
 
+typedef struct {
+	float curr_page_rank;
+	float next_page_rank;
+	long num_adj_nodes;
+	adj_vert_t *last_node_addr;
+	void *next;
+}vertex_t;
+
 float epsilon;
 float rand_hop = 0.15;
 
+#define GRAPH_FILE_SEPERATOR " ,;"
+#define MAX_LINE_LEN 100
 #define RAND_HOP_LIKELIHOOD(r_hop_prob, nvert) ((r_hop_prob) / (nvert))
 #define TRAV_LIKELIHOOD(r_hop_prob, g, index) ((1 - (r_hop_prob)) * (g)[index].curr_page_rank / (g)[index].num_adj_nodes)
+
+long string_to_long(char *str)
+{
+	long val;
+	char *endptr;
+	errno = 0;
+    val = strtol(str, &endptr, 10);
+	if((errno == ERANGE && (val == LONG_MAX || val == LONG_MIN)) || (errno != 0 && val == 0) || (endptr == str)) 
+	{
+		perror("Error while converting string to long value");
+		val = -1;
+	}
+	return val;
+}
 
 void initialize_vertices(vertex_t *g, long num_vertices)
 {
@@ -27,62 +47,91 @@ void initialize_vertices(vertex_t *g, long num_vertices)
 	{
 		g[i].curr_page_rank = 1 / (float)num_vertices;
 		g[i].next_page_rank = RAND_HOP_LIKELIHOOD(rand_hop, num_vertices);
-		g[i].num_adj_nodes = 2;
+		g[i].num_adj_nodes = 0;
+		g[i].last_node_addr = NULL;
 		g[i].next = NULL;
 	}
 }
 
-adj_vert_t *adj_node_init(long *n)
+int append_node(vertex_t *g, long parent_vertex, long child_vertex, long num_verts)
 {
-	long j;
-	adj_vert_t *ptr, *b_ptr = (adj_vert_t *)malloc(sizeof(adj_vert_t));
-	ptr = b_ptr;
-	ptr->vertex_num = n[0];
-	for(j =1;j < 2;j++)
+	if(parent_vertex >= num_verts || child_vertex >= num_verts)
 	{
-		ptr->next = (adj_vert_t *)malloc(sizeof(adj_vert_t));
-		ptr = ptr->next;
-		ptr->vertex_num = n[j];
+		printf("Invalid arguments\n");
+		return -1;
 	}
+	adj_vert_t *ptr = (adj_vert_t *)malloc(sizeof(adj_vert_t));
+	ptr->vertex_num = child_vertex;
 	ptr->next = NULL;
-	return b_ptr;
+	if(g[parent_vertex].next == NULL)
+	{
+		g[parent_vertex].next = ptr;
+		g[parent_vertex].last_node_addr = ptr;
+	}
+	else
+	{
+		g[parent_vertex].last_node_addr->next = ptr;
+		g[parent_vertex].last_node_addr = ptr;
+	}
+	g[parent_vertex].num_adj_nodes++;
+	return 0;
 }
+
 void print_converged_pr_vals(vertex_t *g, long num_vertices)
 {
 	long i;
-	float sum = 0;
 	for(i = 0;i < num_vertices;i++)
-	{
-		printf("Converged page rank for node %d : %f\n",i,g[i].curr_page_rank);
-		sum += g[i].curr_page_rank;
-	}
-	printf("========== Sum : %f ==============\n",sum);
+		printf("Converged page rank for node %lu : %f\n",i,g[i].curr_page_rank);
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
 	long i;
+	FILE *file;
+	char *token1, *token2;
+	char line[MAX_LINE_LEN];
 	adj_vert_t *ptr = NULL;
 	float value = 0;
 	float pr_diff;
-	long num_vertices = 5;
-	epsilon = 0.00000001 * num_vertices;
+	long num_vertices = 0;
+	long pnode, cnode;
+	vertex_t *graph;
 
-	///////////
-	long arr[5][2] = {{1,2},{2,3},{3,4},{1,2},{0,3}};
-	///////////
-	vertex_t *graph = (vertex_t *)malloc(num_vertices * sizeof(vertex_t));	
+	epsilon = 0.000001 * num_vertices;
+
+	if(argc != 3)
+		return -1;
+	num_vertices = string_to_long(argv[1]);
+	if(num_vertices < 0)
+		return -1;
+	graph = (vertex_t *)malloc(num_vertices * sizeof(vertex_t));
+	if(!graph)
+		return -1;
 	initialize_vertices(graph, num_vertices);
-	//////////////////////////////////////////////////
-	for(i = 0;i < num_vertices;i++)
+	file = fopen(argv[2],"r");
+	if(file)
 	{
-		graph[i].next = adj_node_init(arr[i]);
+		while (fgets(line, sizeof(line), file))
+		{
+			token1 = strtok (line,GRAPH_FILE_SEPERATOR);
+			token2 = strtok(NULL,GRAPH_FILE_SEPERATOR);
+			if(token1 == NULL || token2 == NULL || strtok(NULL,GRAPH_FILE_SEPERATOR) != NULL)
+				return -1;
+			pnode = string_to_long(token1);
+			cnode = string_to_long(token2);
+			if(pnode < 0 || cnode < 0)
+				return -1;
+			if(append_node(graph,pnode,cnode,num_vertices))
+				return -1;
+		}
 	}
-	//////////////////////////////////////////////////
+	else
+		return -1;
+	
+	printf("Graph parsing successful\n");
 	do 
 	{	
 		pr_diff = 0;
-		//sleep(1);
 		for(i = 0;i < num_vertices;i++)
 		{
 			value = TRAV_LIKELIHOOD(rand_hop, graph, i);
