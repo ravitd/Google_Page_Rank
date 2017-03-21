@@ -25,6 +25,7 @@ float rand_hop = 0.15;
 #define MAX_LINE_LEN 100
 #define RAND_HOP_LIKELIHOOD(r_hop_prob, nvert) ((r_hop_prob) / (nvert))
 #define TRAV_LIKELIHOOD(r_hop_prob, g, index) ((1 - (r_hop_prob)) * (g)[index].curr_page_rank / (g)[index].num_adj_nodes)
+#define TRAV_LIKELIHOOD_LEAF(r_hop_prob, g, index) ((1 - (r_hop_prob)) * (g)[index].curr_page_rank / (num_vertices - 1))
 
 long string_to_long(char *str)
 {
@@ -86,7 +87,7 @@ void print_converged_pr_vals(vertex_t *g, long num_vertices)
 
 int main(int argc, char *argv[])
 {
-	long i;
+	long i,j;
 	FILE *file;
 	char *token1, *token2;
 	char line[MAX_LINE_LEN];
@@ -134,7 +135,16 @@ int main(int argc, char *argv[])
 		pr_diff = 0;
 		for(i = 0;i < num_vertices;i++)
 		{
-			value = TRAV_LIKELIHOOD(rand_hop, graph, i);
+			if(graph[i].next == NULL)
+			{
+				for(j = 0;j < num_vertices;j++)
+				{
+					if(j != i)
+						graph[j].next_page_rank += TRAV_LIKELIHOOD_LEAF(rand_hop,graph, i);
+				}
+			}
+			else
+				value = TRAV_LIKELIHOOD(rand_hop, graph, i);
 			for(ptr = (adj_vert_t *)graph[i].next;ptr != NULL;ptr = ptr->next)
 				graph[ptr->vertex_num].next_page_rank += value;
 		}
