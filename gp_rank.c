@@ -4,6 +4,10 @@
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
+#include <time.h>
+
+#define GIG 1000000000
+#define CPG 2.4           // Cycles per GHz -- Adjust to your computer
 
 typedef struct ad_vert {
 	long vertex_num;
@@ -11,21 +15,34 @@ typedef struct ad_vert {
 }adj_vert_t;
 
 typedef struct {
-	float curr_page_rank;
-	float next_page_rank;
+	double curr_page_rank;
+	double next_page_rank;
 	long num_adj_nodes;
 	adj_vert_t *last_node_addr;
 	void *next;
 }vertex_t;
 
-float epsilon;
-float rand_hop = 0.15;
+double epsilon;
+double rand_hop = 0.15;
 
 #define GRAPH_FILE_SEPERATOR " ,;"
 #define MAX_LINE_LEN 100
 #define RAND_HOP_LIKELIHOOD(r_hop_prob, nvert) ((r_hop_prob) / (nvert))
 #define TRAV_LIKELIHOOD(r_hop_prob, g, index) ((1 - (r_hop_prob)) * (g)[index].curr_page_rank / (g)[index].num_adj_nodes)
 #define TRAV_LIKELIHOOD_LEAF(r_hop_prob, g, index) ((1 - (r_hop_prob)) * (g)[index].curr_page_rank / (num_vertices - 1))
+
+struct timespec diff(struct timespec start, struct timespec end)
+{
+  struct timespec temp;
+  if ((end.tv_nsec-start.tv_nsec)<0) {
+    temp.tv_sec = end.tv_sec-start.tv_sec-1;
+    temp.tv_nsec = 1000000000+end.tv_nsec-start.tv_nsec;
+  } else {
+    temp.tv_sec = end.tv_sec-start.tv_sec;
+    temp.tv_nsec = end.tv_nsec-start.tv_nsec;
+  }
+  return temp;
+}
 
 long string_to_long(char *str)
 {
@@ -46,7 +63,7 @@ void initialize_vertices(vertex_t *g, long num_vertices)
 	long i;
 	for(i = 0;i < num_vertices;i++)
 	{
-		g[i].curr_page_rank = 1 / (float)num_vertices;
+		g[i].curr_page_rank = 1 / (double)num_vertices;
 		g[i].next_page_rank = RAND_HOP_LIKELIHOOD(rand_hop, num_vertices);
 		g[i].num_adj_nodes = 0;
 		g[i].last_node_addr = NULL;
@@ -81,8 +98,12 @@ int append_node(vertex_t *g, long parent_vertex, long child_vertex, long num_ver
 void print_converged_pr_vals(vertex_t *g, long num_vertices)
 {
 	long i;
-	for(i = 0;i < num_vertices;i++)
-		printf("Converged page rank for node %lu : %f\n",i,g[i].curr_page_rank);
+	double sum=0;
+	for(i = 0;i < num_vertices;i++){
+		printf("Converged page rank for node %lu : %.10f\n",i,g[i].curr_page_rank);
+		sum += g[i].curr_page_rank;
+	}
+	printf("Sum is %f\n",sum);
 }
 
 int main(int argc, char *argv[])
@@ -92,13 +113,15 @@ int main(int argc, char *argv[])
 	char *token1, *token2;
 	char line[MAX_LINE_LEN];
 	adj_vert_t *ptr = NULL;
-	float value = 0;
-	float pr_diff;
+	double value = 0;
+	double pr_diff;
 	long num_vertices = 0;
 	long pnode, cnode;
+	long iterations=0;
 	vertex_t *graph;
-
-	epsilon = 0.000001 * num_vertices;
+	struct timespec time_diff;
+	struct timespec diff(struct timespec start, struct timespec end);
+	struct timespec time1, time2;
 
 	if(argc != 3)
 		return -1;
@@ -106,6 +129,7 @@ int main(int argc, char *argv[])
 	if(num_vertices < 0)
 		return -1;
 	graph = (vertex_t *)malloc(num_vertices * sizeof(vertex_t));
+	epsilon =(double) 0.000001/num_vertices;
 	if(!graph)
 		return -1;
 	initialize_vertices(graph, num_vertices);
@@ -130,6 +154,8 @@ int main(int argc, char *argv[])
 		return -1;
 	
 	printf("Graph parsing successful\n");
+	//Start time
+	clock_gettime(CLOCK_REALTIME, &time1);
 	do 
 	{	
 		pr_diff = 0;
@@ -155,7 +181,14 @@ int main(int argc, char *argv[])
 			graph[i].next_page_rank = RAND_HOP_LIKELIHOOD(rand_hop,num_vertices);
 		}
 		//printf("Diff : %f\n",pr_diff);
+		iterations++;
 	}while(pr_diff > epsilon);
-	print_converged_pr_vals(graph,num_vertices);
+	//End Time
+	clock_gettime(CLOCK_REALTIME, &time2);
+	time_diff=diff(time1,time2);
+	//print_converged_pr_vals(graph,num_vertices);
+	printf("Number of iterations: %lu\n",iterations);
+	printf("Number of Cycles: %ld\n", (long int)((double)(CPG)*(double)
+		 (GIG * time_diff.tv_sec + time_diff.tv_nsec)));
 	return 0;
 }
